@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect  } from "react";
 
 const CLOUD_NAME = "ddiopuxcr";
 const UPLOAD_PRESET = "Marksheet";
@@ -8,16 +8,8 @@ const ALERT_THRESHOLD = 24.5 * 1024 * 1024 * 1024;
 const API_BASE = import.meta.env.VITE_API_URL || "https://marksheet-1-qy4u.onrender.com";
 
 const Mark = () => {
-  const [pdfs, setPdfs] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("marksheet_meta") || "[]"); }
-    catch { return []; }
-  });
-  const [storageUsed, setStorageUsed] = useState(() => {
-    try {
-      const stored = JSON.parse(localStorage.getItem("marksheet_meta") || "[]");
-      return stored.reduce((acc, p) => acc + (p.size || 0), 0);
-    } catch { return 0; }
-  });
+ const [pdfs, setPdfs] = useState([]);
+  const [storageUsed, setStorageUsed] = useState(0);
   const [form, setForm] = useState({ studentName: "", className: "", board: "" });
   const [pendingFiles, setPendingFiles] = useState([]);
   const [dragging, setDragging] = useState(false);
@@ -34,6 +26,18 @@ const Mark = () => {
   const [selectMode, setSelectMode] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null);
   const fileInputRef = useRef();
+
+   useEffect(() => {
+    fetch(`${API_BASE}/api/files`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setPdfs(data.files);
+          setStorageUsed(data.files.reduce((acc, p) => acc + (p.size || 0), 0));
+        }
+      })
+      .catch(err => console.error("Fetch error:", err));
+  }, []);
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(""), 3500); };
   const handleFormChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
@@ -115,10 +119,7 @@ const Mark = () => {
       await new Promise(r => setTimeout(r, 200));
     }
 
-    const stored = JSON.parse(localStorage.getItem("marksheet_meta") || "[]");
-    const updated = [...results, ...stored];
-    localStorage.setItem("marksheet_meta", JSON.stringify(updated));
-    setPdfs(updated);
+    setPdfs(prev => [...results, ...prev]);
     setStorageUsed(updated.reduce((acc, p) => acc + (p.size || 0), 0));
     setSavedCount(results.length);
     setPendingFiles([]);
