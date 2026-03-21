@@ -120,7 +120,7 @@ const Mark = () => {
     }
 
     setPdfs(prev => [...results, ...prev]);
-    setStorageUsed(updated.reduce((acc, p) => acc + (p.size || 0), 0));
+setStorageUsed(prev => prev + results.reduce((acc, p) => acc + (p.size || 0), 0));
     setSavedCount(results.length);
     setPendingFiles([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
