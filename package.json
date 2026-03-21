@@ -1,0 +1,24 @@
+{
+  "name": "marksheet-uploader",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "vite",
+    "server": "node server.js",
+    "dev:full": "concurrently \"npm run dev\" \"npm run server\""
+  },
+  "type": "module",
+  "dependencies": {
+    "cloudinary": "^2.9.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "open": "^11.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^3.1.0",
+    "concurrently": "^9.2.1",
+    "vite": "^3.2.7"
+  }
+}
