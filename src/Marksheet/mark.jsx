@@ -5,6 +5,7 @@ const UPLOAD_PRESET = "Marksheet";
 const UPLOAD_URL = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`;
 const TOTAL_STORAGE = 25 * 1024 * 1024 * 1024;
 const ALERT_THRESHOLD = 24.5 * 1024 * 1024 * 1024;
+const API_BASE = import.meta.env.VITE_API_URL || "https://marksheet-1-qy4u.onrender.com";
 
 const Mark = () => {
   const [pdfs, setPdfs] = useState(() => {
@@ -147,8 +148,8 @@ const Mark = () => {
     const item = items[0];
     const resourceType = item.resourceType || "image";
     // ✅ Use full URL instead of /api/...
-    const res = await fetch(
-  `http://localhost:3001/api/delete?publicId=${encodeURIComponent(item.publicId)}&resourceType=${resourceType}`,
+   const res = await fetch(
+  `${API_BASE}/api/delete?publicId=${encodeURIComponent(item.publicId)}&resourceType=${resourceType}`,
   { method: "DELETE" }
 );
     if (!res.ok) throw new Error(`Server error: ${res.status}`);
@@ -163,7 +164,7 @@ const Mark = () => {
     });
     for (const [resourceType, publicIds] of Object.entries(byType)) {
       // ✅ Use full URL instead of /api/...
-      const res = await fetch("http://localhost:3001/api/delete-many", {
+     const res = await fetch(`${API_BASE}/api/delete-many`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ publicIds, resourceType }),
