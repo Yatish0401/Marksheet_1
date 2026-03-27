@@ -51,23 +51,22 @@ app.get("/api/files", async (req, res) => {
     ]);
 
     const allFiles = [...images, ...raw, ...videos]
-     .filter(r => !deletedIds.has(r.public_id))
-    .map(r => {
-      const ctx = r.context?.custom || {};
-      return {
-        id: r.public_id,
-        publicId: r.public_id,
-        name: ctx.student || r.tags?.[0] || "Unknown",
-        className: ctx.class || r.tags?.[1] || "",
-        board: ctx.board || r.tags?.[2] || "",
-        originalName: ctx.origName || r.public_id,
-        size: r.bytes || 0,
-        date: new Date(r.created_at).getTime(),
-        url: r.secure_url,
-        resourceType: r.resource_type,
-        format: r.format,
-      };
-    });
+      .map(r => {
+        const ctx = r.context?.custom || {};
+        return {
+          id: r.public_id,
+          publicId: r.public_id,
+          name: ctx.student || r.tags?.[0] || "Unknown",
+          className: ctx.class || r.tags?.[1] || "",
+          board: ctx.board || r.tags?.[2] || "",
+          originalName: ctx.origName || r.public_id,
+          size: r.bytes || 0,
+          date: new Date(r.created_at).getTime(),
+          url: r.secure_url,
+          resourceType: r.resource_type,
+          format: r.format,
+        };
+      });
 
     allFiles.sort((a, b) => b.date - a.date);
     res.json({ success: true, files: allFiles });
@@ -93,7 +92,6 @@ app.get("/api/proxy-pdf", async (req, res) => {
   }
 });
 
-
 // ── Delete single file ──────────────────────────────────────
 app.delete("/api/delete", async (req, res) => {
   try {
@@ -111,7 +109,6 @@ app.delete("/api/delete", async (req, res) => {
 
     // "not found" bhi success maano — already deleted
     if (result.result === "ok" || result.result === "not found") {
-       deletedIds.add(publicId);
       res.json({ success: true, result });
     } else {
       res.status(400).json({ success: false, error: result.result });
@@ -137,12 +134,6 @@ app.post("/api/delete-many", async (req, res) => {
         cloudinary.uploader.destroy(id, { resource_type: resourceType, invalidate: true })
       )
     );
-     results.forEach((r, i) => {
-      if (r.status === "fulfilled" && 
-         (r.value.result === "ok" || r.value.result === "not found")) {
-        deletedIds.add(publicIds[i]); // ← deleted IDs yaad rakho
-      }
-    });
 
     console.log(`✅ Bulk delete results:`, results.map(r => r.value || r.reason?.message));
 
@@ -159,6 +150,7 @@ app.post("/api/delete-many", async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
 // ── Health check ────────────────────────────────────────────
 app.get("/api/health", (_, res) => res.json({ status: "ok" }));
 
