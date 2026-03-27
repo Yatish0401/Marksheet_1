@@ -1,11 +1,95 @@
-import { useState, useRef, useCallback, useEffect  } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 
 const CLOUD_NAME = "ddiopuxcr";
 const UPLOAD_PRESET = "Marksheet";
-const UPLOAD_URL = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`;
+const UPLOAD_URL_IMAGE = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`;
+const UPLOAD_URL_RAW = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/raw/upload`;
 const TOTAL_STORAGE = 25 * 1024 * 1024 * 1024;
 const ALERT_THRESHOLD = 24.5 * 1024 * 1024 * 1024;
 const API_BASE = import.meta.env.VITE_API_URL || "https://marksheet-1-qy4u.onrender.com";
+const PdfViewer = ({ url }) => {
+  const [pdfData, setPdfData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  const pdfUrl = url
+    .replace("/image/upload/", "/raw/upload/")
+    .replace("/auto/upload/", "/raw/upload/")
+    .split("?")[0];
+
+  useEffect(() => {
+    setLoading(true);
+    setError(false);
+    setPdfData(null);
+
+    fetch(`${API_BASE}/api/proxy-pdf?url=${encodeURIComponent(pdfUrl)}`)
+      .then(res => {
+        if (!res.ok) throw new Error("Failed");
+        return res.blob();
+      })
+      .then(blob => {
+        const objectUrl = URL.createObjectURL(blob);
+        setPdfData(objectUrl);
+        setLoading(false);
+      })
+      .catch(() => {
+        setError(true);
+        setLoading(false);
+      });
+
+    return () => {
+      if (pdfData) URL.revokeObjectURL(pdfData);
+    };
+  }, [url]);
+
+  if (loading) return (
+    <div style={{
+      width: "100%", height: "400px", display: "flex",
+      alignItems: "center", justifyContent: "center",
+      background: "#f5f3ff", flexDirection: "column", gap: "12px"
+    }}>
+      <div style={{
+        width: "40px", height: "40px", border: "4px solid #ddd6fe",
+        borderTop: "4px solid #7c3aed", borderRadius: "50%",
+        animation: "spin 1s linear infinite"
+      }} />
+      <p style={{ color: "#7c3aed", fontSize: "14px", fontWeight: "600" }}>Loading PDF...</p>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+
+  if (error) return (
+    <div style={{
+      width: "100%", height: "300px", display: "flex",
+      alignItems: "center", justifyContent: "center",
+      background: "#fef2f2", flexDirection: "column", gap: "12px"
+    }}>
+      <span style={{ fontSize: "40px" }}>❌</span>
+      <p style={{ color: "#dc2626", fontSize: "14px", fontWeight: "600" }}>PDF load nahi hua</p>
+      <button
+        onClick={() => window.open(pdfUrl, "_blank")}
+        style={{
+          padding: "8px 20px", background: "#7c3aed", color: "#fff",
+          border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "600"
+        }}
+      >
+        New Tab mein Open karo ↗
+      </button>
+    </div>
+  );
+
+  return (
+    <div style={{ width: "100%", background: "#f8fafc" }}>
+      <iframe
+        src={pdfData}
+        width="100%"
+        height="600px"
+        style={{ display: "block", border: "none", borderRadius: "0 0 12px 12px" }}
+        title="PDF Viewer"
+      />
+    </div>
+  );
+};
 
 const Mark = () => {
  const [pdfs, setPdfs] = useState([]);
@@ -105,7 +189,12 @@ const Mark = () => {
         formData.append("upload_preset", UPLOAD_PRESET);
         formData.append("tags", [form.studentName.replace(/,/g,""), form.className.replace(/,/g,""), form.board.replace(/,/g,"")].join(","));
         formData.append("context", `student=${form.studentName}|class=${form.className}|board=${form.board}|origName=${file.name}`);
-        const res = await fetch(UPLOAD_URL, { method: "POST", body: formData });
+        // Detect file type
+const isPdf = file.name.toLowerCase().endsWith('.pdf');
+const isDoc = ['doc','docx','txt'].some(ext => file.name.toLowerCase().endsWith(ext));
+const uploadUrl = (isPdf || isDoc) ? UPLOAD_URL_RAW : UPLOAD_URL_IMAGE;
+
+const res = await fetch(uploadUrl, { method: "POST", body: formData });
         if (!res.ok) throw new Error(`Upload failed: ${res.statusText}`);
         const data = await res.json();
         results.push({
@@ -147,7 +236,10 @@ setStorageUsed(prev => prev + results.reduce((acc, p) => acc + (p.size || 0), 0)
 
   if (ids.length === 1) {
     const item = items[0];
-    const resourceType = item.resourceType || "image";
+    const ext = (item.originalName || "").split(".").pop().toLowerCase();
+const isPdf = ext === "pdf";
+const isDoc = ["doc","docx","txt"].includes(ext);
+const resourceType = (isPdf || isDoc) ? "raw" : (item.resourceType || "image");
     // ✅ Use full URL instead of /api/...
    const res = await fetch(
   `${API_BASE}/api/delete?publicId=${encodeURIComponent(item.publicId)}&resourceType=${resourceType}`,
@@ -159,10 +251,13 @@ setStorageUsed(prev => prev + results.reduce((acc, p) => acc + (p.size || 0), 0)
   } else {
     const byType = {};
     items.forEach(item => {
-      const rt = item.resourceType || "image";
-      if (!byType[rt]) byType[rt] = [];
-      byType[rt].push(item.publicId);
-    });
+  const ext = (item.originalName || "").split(".").pop().toLowerCase();
+  const isPdf = ext === "pdf";
+  const isDoc = ["doc","docx","txt"].includes(ext);
+  const rt = (isPdf || isDoc) ? "raw" : (item.resourceType || "image");
+  if (!byType[rt]) byType[rt] = [];
+  byType[rt].push(item.publicId);
+});
     for (const [resourceType, publicIds] of Object.entries(byType)) {
       // ✅ Use full URL instead of /api/...
      const res = await fetch(`${API_BASE}/api/delete-many`, {
@@ -260,7 +355,7 @@ setStorageUsed(prev => prev + results.reduce((acc, p) => acc + (p.size || 0), 0)
     if (["jpg","jpeg","png","gif","bmp","webp"].includes(ext))
       return <img src={p.url} style={{ width:"100%", maxHeight:"60vw", objectFit:"contain", background:"#f8fafc", display:"block" }} alt={p.name} />;
     if (ext === "pdf")
-      return <iframe src={p.url} style={styles.iframe} title={p.name} />;
+      return <PdfViewer url={p.url} />;
     return (
       <div style={{ padding:"2rem", textAlign:"center", color:"#64748b" }}>
         <div style={{ fontSize:"40px", marginBottom:"12px" }}>📁</div>

@@ -2,6 +2,7 @@ import open from "open";
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import axios from "axios";
 import { v2 as cloudinary } from "cloudinary";
 
 dotenv.config();
@@ -21,22 +22,28 @@ app.use(cors({
 
 app.use(express.json());
 
+// ── Helper: fetch all resources by type ────────────────────
+const fetchAll = async (resourceType) => {
+  const results = [];
+  let nextCursor = null;
+  do {
+    const options = {
+      resource_type: resourceType,
+      max_results: 500,
+      context: true,
+      tags: true,
+    };
+    if (nextCursor) options.next_cursor = nextCursor;
+    const res = await cloudinary.api.resources(options);
+    results.push(...res.resources);
+    nextCursor = res.next_cursor || null;
+  } while (nextCursor);
+  return results;
+};
+
 // ── Fetch all uploaded files ────────────────────────────────
 app.get("/api/files", async (req, res) => {
   try {
-    const fetchAll = async (resourceType) => {
-      let results = [];
-      let nextCursor = null;
-      do {
-        const options = { max_results: 500, context: true, tags: true };
-        if (nextCursor) options.next_cursor = nextCursor;
-        const response = await cloudinary.api.resources({ ...options, resource_type: resourceType });
-        results = results.concat(response.resources);
-        nextCursor = response.next_cursor;
-      } while (nextCursor);
-      return results;
-    };
-
     const [images, raw, videos] = await Promise.all([
       fetchAll("image"),
       fetchAll("raw"),
@@ -60,12 +67,27 @@ app.get("/api/files", async (req, res) => {
       };
     });
 
-    // Sort newest first
     allFiles.sort((a, b) => b.date - a.date);
     res.json({ success: true, files: allFiles });
   } catch (err) {
     console.error("❌ Fetch error:", err.message);
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── Proxy PDF ───────────────────────────────────────────────
+app.get("/api/proxy-pdf", async (req, res) => {
+  const { url } = req.query;
+  if (!url) return res.status(400).json({ error: "URL required" });
+  try {
+    const response = await axios.get(url, { responseType: "arraybuffer" });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Content-Disposition", "inline");
+    res.send(response.data);
+  } catch (err) {
+    console.error("❌ Proxy error:", err.message);
+    res.status(500).json({ error: "Failed to fetch PDF" });
   }
 });
 
@@ -75,12 +97,10 @@ app.delete("/api/delete", async (req, res) => {
     const { publicId, resourceType = "image" } = req.query;
     if (!publicId) return res.status(400).json({ success: false, error: "publicId is required" });
 
-    console.log(`🗑️ Deleting: ${publicId} (${resourceType})`);
     const result = await cloudinary.uploader.destroy(publicId, {
       resource_type: resourceType,
       invalidate: true,
     });
-    console.log(`✅ Cloudinary result:`, result);
 
     if (result.result === "ok" || result.result === "not found") {
       res.json({ success: true, result });
@@ -100,7 +120,6 @@ app.post("/api/delete-many", async (req, res) => {
     if (!publicIds || publicIds.length === 0) {
       return res.status(400).json({ success: false, error: "No publicIds provided" });
     }
-    console.log(`🗑️ Bulk deleting ${publicIds.length} files`);
     const results = await Promise.allSettled(
       publicIds.map(id =>
         cloudinary.uploader.destroy(id, { resource_type: resourceType, invalidate: true })
