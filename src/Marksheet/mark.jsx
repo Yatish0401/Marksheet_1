@@ -7,44 +7,75 @@ const UPLOAD_URL_RAW = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/raw/upload
 const TOTAL_STORAGE = 25 * 1024 * 1024 * 1024;
 const ALERT_THRESHOLD = 24.5 * 1024 * 1024 * 1024;
 const API_BASE = import.meta.env.VITE_API_URL || "https://marksheet-1-qy4u.onrender.com";
+
+// ── PDF Viewer (PDF.js — works on mobile + desktop) ─────────
 const PdfViewer = ({ url }) => {
-  const [pdfData, setPdfData] = useState(null);
+  const canvasRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [numPages, setNumPages] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pdfDoc, setPdfDoc] = useState(null);
 
   const pdfUrl = url
     .replace("/image/upload/", "/raw/upload/")
     .replace("/auto/upload/", "/raw/upload/")
     .split("?")[0];
 
-  useEffect(() => {
-    setLoading(true);
-    setError(false);
-    setPdfData(null);
+  const proxyUrl = `${API_BASE}/api/proxy-pdf?url=${encodeURIComponent(pdfUrl)}`;
 
-    fetch(`${API_BASE}/api/proxy-pdf?url=${encodeURIComponent(pdfUrl)}`)
-      .then(res => {
-        if (!res.ok) throw new Error("Failed");
-        return res.blob();
-      })
-      .then(blob => {
-        const objectUrl = URL.createObjectURL(blob);
-        setPdfData(objectUrl);
+  const loadPdf = () => {
+    const pdfjsLib = window.pdfjsLib;
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+    pdfjsLib.getDocument(proxyUrl).promise
+      .then(doc => {
+        setPdfDoc(doc);
+        setNumPages(doc.numPages);
         setLoading(false);
       })
       .catch(() => {
         setError(true);
         setLoading(false);
       });
+  };
 
-    return () => {
-      if (pdfData) URL.revokeObjectURL(pdfData);
-    };
+  useEffect(() => {
+    setLoading(true);
+    setError(false);
+    setCurrentPage(1);
+    setPdfDoc(null);
+
+    if (window.pdfjsLib) {
+      loadPdf();
+    } else {
+      const script = document.createElement("script");
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+      script.onload = loadPdf;
+      script.onerror = () => { setError(true); setLoading(false); };
+      document.head.appendChild(script);
+    }
   }, [url]);
+
+  useEffect(() => {
+    if (!pdfDoc || !canvasRef.current) return;
+    pdfDoc.getPage(currentPage).then(page => {
+      const canvas = canvasRef.current;
+      const context = canvas.getContext("2d");
+      const containerWidth = canvas.parentElement?.offsetWidth || 340;
+      const viewport = page.getViewport({ scale: 1 });
+      const scale = containerWidth / viewport.width;
+      const scaledViewport = page.getViewport({ scale });
+      canvas.width = scaledViewport.width;
+      canvas.height = scaledViewport.height;
+      page.render({ canvasContext: context, viewport: scaledViewport });
+    });
+  }, [pdfDoc, currentPage]);
 
   if (loading) return (
     <div style={{
-      width: "100%", height: "400px", display: "flex",
+      width: "100%", height: "300px", display: "flex",
       alignItems: "center", justifyContent: "center",
       background: "#f5f3ff", flexDirection: "column", gap: "12px"
     }}>
@@ -60,14 +91,14 @@ const PdfViewer = ({ url }) => {
 
   if (error) return (
     <div style={{
-      width: "100%", height: "300px", display: "flex",
+      width: "100%", height: "250px", display: "flex",
       alignItems: "center", justifyContent: "center",
       background: "#fef2f2", flexDirection: "column", gap: "12px"
     }}>
       <span style={{ fontSize: "40px" }}>❌</span>
       <p style={{ color: "#dc2626", fontSize: "14px", fontWeight: "600" }}>PDF load nahi hua</p>
       <button
-        onClick={() => window.open(pdfUrl, "_blank")}
+        onClick={() => window.open(proxyUrl, "_blank")}
         style={{
           padding: "8px 20px", background: "#7c3aed", color: "#fff",
           border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "600"
@@ -79,20 +110,51 @@ const PdfViewer = ({ url }) => {
   );
 
   return (
-    <div style={{ width: "100%", background: "#f8fafc" }}>
-      <iframe
-        src={pdfData}
-        width="100%"
-        height="600px"
-        style={{ display: "block", border: "none", borderRadius: "0 0 12px 12px" }}
-        title="PDF Viewer"
+    <div style={{ width: "100%", background: "#f8fafc", padding: "8px" }}>
+      {numPages > 1 && (
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "center",
+          gap: "12px", padding: "10px", background: "#ede9fe",
+          borderRadius: "10px", marginBottom: "8px"
+        }}>
+          <button
+            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+            disabled={currentPage === 1}
+            style={{
+              padding: "6px 14px", background: currentPage === 1 ? "#e2e8f0" : "#7c3aed",
+              color: currentPage === 1 ? "#94a3b8" : "#fff",
+              border: "none", borderRadius: "6px", cursor: currentPage === 1 ? "default" : "pointer",
+              fontWeight: "700", fontSize: "14px"
+            }}
+          >◀</button>
+          <span style={{ fontSize: "13px", fontWeight: "600", color: "#4c1d95" }}>
+            Page {currentPage} / {numPages}
+          </span>
+          <button
+            onClick={() => setCurrentPage(p => Math.min(numPages, p + 1))}
+            disabled={currentPage === numPages}
+            style={{
+              padding: "6px 14px", background: currentPage === numPages ? "#e2e8f0" : "#7c3aed",
+              color: currentPage === numPages ? "#94a3b8" : "#fff",
+              border: "none", borderRadius: "6px", cursor: currentPage === numPages ? "default" : "pointer",
+              fontWeight: "700", fontSize: "14px"
+            }}
+          >▶</button>
+        </div>
+      )}
+      <canvas
+        ref={canvasRef}
+        style={{
+          width: "100%", height: "auto", display: "block",
+          borderRadius: "8px", boxShadow: "0 2px 8px rgba(0,0,0,0.1)"
+        }}
       />
     </div>
   );
 };
 
 const Mark = () => {
- const [pdfs, setPdfs] = useState([]);
+  const [pdfs, setPdfs] = useState([]);
   const [storageUsed, setStorageUsed] = useState(0);
   const [form, setForm] = useState({ studentName: "", className: "", board: "" });
   const [pendingFiles, setPendingFiles] = useState([]);
@@ -111,7 +173,7 @@ const Mark = () => {
   const [confirmAction, setConfirmAction] = useState(null);
   const fileInputRef = useRef();
 
-   useEffect(() => {
+  useEffect(() => {
     fetch(`${API_BASE}/api/files`)
       .then(res => res.json())
       .then(data => {
@@ -168,12 +230,12 @@ const Mark = () => {
     e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files);
   }, []);
 
- const uploadFiles = async () => {
-  if (pendingFiles.length === 0) { showToast("Please select at least one file!"); return; }
-  if (storageUsed >= ALERT_THRESHOLD) {
-    showToast("🚫 Storage is full! Please delete some files before uploading.");
-    return;
-  }
+  const uploadFiles = async () => {
+    if (pendingFiles.length === 0) { showToast("Please select at least one file!"); return; }
+    if (storageUsed >= ALERT_THRESHOLD) {
+      showToast("🚫 Storage is full! Please delete some files before uploading.");
+      return;
+    }
     setUploadStatus("uploading");
     setProgress(0);
     setProgressFiles([...pendingFiles]);
@@ -189,12 +251,11 @@ const Mark = () => {
         formData.append("upload_preset", UPLOAD_PRESET);
         formData.append("tags", [form.studentName.replace(/,/g,""), form.className.replace(/,/g,""), form.board.replace(/,/g,"")].join(","));
         formData.append("context", `student=${form.studentName}|class=${form.className}|board=${form.board}|origName=${file.name}`);
-        // Detect file type
-const isPdf = file.name.toLowerCase().endsWith('.pdf');
-const isDoc = ['doc','docx','txt'].some(ext => file.name.toLowerCase().endsWith(ext));
-const uploadUrl = (isPdf || isDoc) ? UPLOAD_URL_RAW : UPLOAD_URL_IMAGE;
+        const isPdf = file.name.toLowerCase().endsWith('.pdf');
+        const isDoc = ['doc','docx','txt'].some(ext => file.name.toLowerCase().endsWith(ext));
+        const uploadUrl = (isPdf || isDoc) ? UPLOAD_URL_RAW : UPLOAD_URL_IMAGE;
 
-const res = await fetch(uploadUrl, { method: "POST", body: formData });
+        const res = await fetch(uploadUrl, { method: "POST", body: formData });
         if (!res.ok) throw new Error(`Upload failed: ${res.statusText}`);
         const data = await res.json();
         results.push({
@@ -209,7 +270,7 @@ const res = await fetch(uploadUrl, { method: "POST", body: formData });
     }
 
     setPdfs(prev => [...results, ...prev]);
-setStorageUsed(prev => prev + results.reduce((acc, p) => acc + (p.size || 0), 0));
+    setStorageUsed(prev => prev + results.reduce((acc, p) => acc + (p.size || 0), 0));
     setSavedCount(results.length);
     setPendingFiles([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -230,58 +291,48 @@ setStorageUsed(prev => prev + results.reduce((acc, p) => acc + (p.size || 0), 0)
     if (fileInputRef.current) { fileInputRef.current.value = ""; fileInputRef.current.click(); }
   };
 
-  // ── Cloudinary delete ────────────────────────────────────────
- const deleteFromCloudinary = async (ids) => {
-  const items = pdfs.filter(p => ids.includes(p.id));
-  console.log("🗑️ Deleting items:", items.map(i => ({ id: i.id, publicId: i.publicId, originalName: i.originalName })));
+  // ── Cloudinary delete — FIX: use item.resourceType directly ─
+  const deleteFromCloudinary = async (ids) => {
+    const items = pdfs.filter(p => ids.includes(p.id));
 
-  if (ids.length === 1) {
-    const item = items[0];
-    const ext = (item.originalName || "").split(".").pop().toLowerCase();
-    const isPdf = ext === "pdf";
-    const isDoc = ["doc", "docx", "txt"].includes(ext);
-    const resourceType = (isPdf || isDoc) ? "raw" : (item.resourceType || "image");
+    if (ids.length === 1) {
+      const item = items[0];
+      // ✅ FIX: resourceType seedha Cloudinary ke stored value se lo
+      const resourceType = item.resourceType || "image";
 
-    console.log(`🗑️ Single delete: publicId="${item.publicId}" resourceType="${resourceType}"`);
+      console.log(`🗑️ Single delete: publicId="${item.publicId}" resourceType="${resourceType}"`);
 
-    const res = await fetch(
-      `${API_BASE}/api/delete?publicId=${encodeURIComponent(item.publicId)}&resourceType=${resourceType}`,
-      { method: "DELETE" }
-    );
+      const res = await fetch(
+        `${API_BASE}/api/delete?publicId=${encodeURIComponent(item.publicId)}&resourceType=${resourceType}`,
+        { method: "DELETE" }
+      );
+      const data = await res.json();
+      console.log("✅ Delete response:", data);
+      if (!res.ok || !data.success) throw new Error(data.error || "Delete failed");
 
-    const data = await res.json();
-    console.log("✅ Delete response:", data);
-
-    if (!res.ok || !data.success) throw new Error(data.error || "Delete failed");
-
-  } else {
-    // Group by resource type
-    const byType = {};
-    items.forEach(item => {
-      const ext = (item.originalName || "").split(".").pop().toLowerCase();
-      const isPdf = ext === "pdf";
-      const isDoc = ["doc", "docx", "txt"].includes(ext);
-      const rt = (isPdf || isDoc) ? "raw" : (item.resourceType || "image");
-      if (!byType[rt]) byType[rt] = [];
-      byType[rt].push(item.publicId);
-    });
-
-    console.log("🗑️ Bulk delete by type:", byType);
-
-    for (const [resourceType, publicIds] of Object.entries(byType)) {
-      const res = await fetch(`${API_BASE}/api/delete-many`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ publicIds, resourceType }),
+    } else {
+      // ✅ FIX: bulk delete mein bhi resourceType item se lo
+      const byType = {};
+      items.forEach(item => {
+        const rt = item.resourceType || "image";
+        if (!byType[rt]) byType[rt] = [];
+        byType[rt].push(item.publicId);
       });
 
-      const data = await res.json();
-      console.log(`✅ Bulk delete response for "${resourceType}":`, data);
+      console.log("🗑️ Bulk delete by type:", byType);
 
-      if (!res.ok || !data.success) throw new Error(data.error || "Bulk delete failed");
+      for (const [resourceType, publicIds] of Object.entries(byType)) {
+        const res = await fetch(`${API_BASE}/api/delete-many`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ publicIds, resourceType }),
+        });
+        const data = await res.json();
+        console.log(`✅ Bulk delete response for "${resourceType}":`, data);
+        if (!res.ok || !data.success) throw new Error(data.error || "Bulk delete failed");
+      }
     }
-  }
-};
+  };
 
   const doDelete = async (ids) => {
     try {
@@ -289,7 +340,6 @@ setStorageUsed(prev => prev + results.reduce((acc, p) => acc + (p.size || 0), 0)
       await deleteFromCloudinary(ids);
       const updated = pdfs.filter((x) => !ids.includes(x.id));
       setPdfs(updated);
-      localStorage.setItem("marksheet_meta", JSON.stringify(updated));
       setStorageUsed(updated.reduce((acc, p) => acc + (p.size || 0), 0));
       if (viewingPdf && ids.includes(viewingPdf.id)) setViewingPdf(null);
       setSelectedIds(prev => prev.filter(id => !ids.includes(id)));
@@ -395,6 +445,7 @@ setStorageUsed(prev => prev + results.reduce((acc, p) => acc + (p.size || 0), 0)
         @keyframes pulseBg { 0%,100%{opacity:1} 50%{opacity:0.75} }
         @keyframes fadeIn { from{opacity:0} to{opacity:1} }
         @keyframes scaleIn { from{opacity:0;transform:scale(0.94)} to{opacity:1;transform:scale(1)} }
+        @keyframes spin { to { transform: rotate(360deg); } }
         * { box-sizing: border-box; }
         @media (max-width: 600px) {
           .mh { flex-direction: column !important; align-items: flex-start !important; gap: 10px !important; padding: 0.85rem 1rem !important; }
@@ -419,7 +470,6 @@ setStorageUsed(prev => prev + results.reduce((acc, p) => acc + (p.size || 0), 0)
           .viewer-header { flex-direction: column !important; align-items: flex-start !important; gap: 8px !important; }
           .viewer-header-btns { width: 100% !important; justify-content: flex-end !important; }
           .drop-zone { padding: 1rem !important; }
-          iframe { height: 400px !important; }
         }
       `}</style>
 
@@ -463,12 +513,12 @@ setStorageUsed(prev => prev + results.reduce((acc, p) => acc + (p.size || 0), 0)
       <div style={styles.header} className="mh">
         <div style={styles.headerLeft}>
           <div style={styles.logo}>
-  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2">
-    <polygon points="12 2 22 8.5 12 15 2 8.5 12 2"/>
-    <path d="M6 11.5v5c0 0 2 2.5 6 2.5s6-2.5 6-2.5v-5"/>
-    <line x1="22" y1="8.5" x2="22" y2="14"/>
-  </svg>
-</div>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2">
+              <polygon points="12 2 22 8.5 12 15 2 8.5 12 2"/>
+              <path d="M6 11.5v5c0 0 2 2.5 6 2.5s6-2.5 6-2.5v-5"/>
+              <line x1="22" y1="8.5" x2="22" y2="14"/>
+            </svg>
+          </div>
           <div>
             <h1 style={styles.title}>Marksheet Uploader</h1>
             <p style={styles.subtitle}>☁️ {formatSize(storageUsed)} used · {formatSize(TOTAL_STORAGE - storageUsed)} free · 25GB total</p>
@@ -598,48 +648,38 @@ setStorageUsed(prev => prev + results.reduce((acc, p) => acc + (p.size || 0), 0)
                     </div>
                   </div>
                 )}
+
                 {pendingFiles.length > 0 && (
-  <>
-    {storageUsed >= ALERT_THRESHOLD && (
-      <div style={{
-        background: "#fef2f2",
-        border: "1.5px solid #fecaca",
-        borderRadius: "10px",
-        padding: "12px 16px",
-        marginTop: "12px",
-        display: "flex",
-        alignItems: "center",
-        gap: "10px",
-        fontSize: "13px",
-        color: "#dc2626",
-        fontWeight: "600"
-      }}>
-        <span style={{ fontSize: "20px" }}>🚫</span>
-        <div>
-          <div>Storage is full! You cannot upload more files.</div>
-          <div style={{ fontSize: "12px", fontWeight: "400", marginTop: "3px", color: "#ef4444" }}>
-            Please delete some files to free up space, then try again.
-          </div>
-        </div>
-      </div>
-    )}
-    <button
-      style={{
-        ...styles.btnUpload,
-        ...(storageUsed >= ALERT_THRESHOLD ? {
-          background: "#e2e8f0",
-          color: "#94a3b8",
-          cursor: "not-allowed",
-          opacity: 0.7
-        } : {})
-      }}
-      onClick={uploadFiles}
-      disabled={storageUsed >= ALERT_THRESHOLD}
-    >
-      {storageUsed >= ALERT_THRESHOLD ? "🚫 Storage Full" : `☁️ Upload ${pendingFiles.length} File${pendingFiles.length !== 1 ? "s" : ""}`}
-    </button>
-  </>
-)}
+                  <>
+                    {storageUsed >= ALERT_THRESHOLD && (
+                      <div style={{
+                        background: "#fef2f2", border: "1.5px solid #fecaca", borderRadius: "10px",
+                        padding: "12px 16px", marginTop: "12px", display: "flex",
+                        alignItems: "center", gap: "10px", fontSize: "13px", color: "#dc2626", fontWeight: "600"
+                      }}>
+                        <span style={{ fontSize: "20px" }}>🚫</span>
+                        <div>
+                          <div>Storage is full! You cannot upload more files.</div>
+                          <div style={{ fontSize: "12px", fontWeight: "400", marginTop: "3px", color: "#ef4444" }}>
+                            Please delete some files to free up space, then try again.
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    <button
+                      style={{
+                        ...styles.btnUpload,
+                        ...(storageUsed >= ALERT_THRESHOLD ? {
+                          background: "#e2e8f0", color: "#94a3b8", cursor: "not-allowed", opacity: 0.7
+                        } : {})
+                      }}
+                      onClick={uploadFiles}
+                      disabled={storageUsed >= ALERT_THRESHOLD}
+                    >
+                      {storageUsed >= ALERT_THRESHOLD ? "🚫 Storage Full" : `☁️ Upload ${pendingFiles.length} File${pendingFiles.length !== 1 ? "s" : ""}`}
+                    </button>
+                  </>
+                )}
               </>
             )}
 
@@ -918,7 +958,6 @@ const styles = {
   viewerTitleRow: { display:"flex", alignItems:"center", gap:"10px", minWidth:0 },
   viewerTitle: { fontSize:"13px", fontWeight:"600", color:"#1e293b", margin:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" },
   btnClose: { padding:"6px 14px", fontSize:"12px", background:"#f1f5f9", border:"1.5px solid #e2e8f0", borderRadius:"6px", cursor:"pointer", color:"#64748b", fontWeight:"500" },
-  iframe: { width:"100%", height:"500px", border:"none", display:"block", background:"#fff" },
   toast: { position:"fixed", bottom:"20px", left:"50%", transform:"translateX(-50%)", background:"#1e293b", color:"#fff", padding:"10px 20px", borderRadius:"24px", fontSize:"13px", fontWeight:"500", zIndex:9999, boxShadow:"0 4px 20px rgba(0,0,0,0.15)", whiteSpace:"nowrap", maxWidth:"90vw", overflow:"hidden", textOverflow:"ellipsis" },
 };
 
