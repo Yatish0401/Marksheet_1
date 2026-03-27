@@ -231,43 +231,54 @@ setStorageUsed(prev => prev + results.reduce((acc, p) => acc + (p.size || 0), 0)
   };
 
   // ── Cloudinary delete ────────────────────────────────────────
-  const deleteFromCloudinary = async (ids) => {
+ const deleteFromCloudinary = async (ids) => {
   const items = pdfs.filter(p => ids.includes(p.id));
+  console.log("🗑️ Deleting items:", items.map(i => ({ id: i.id, publicId: i.publicId, originalName: i.originalName })));
 
   if (ids.length === 1) {
     const item = items[0];
     const ext = (item.originalName || "").split(".").pop().toLowerCase();
-const isPdf = ext === "pdf";
-const isDoc = ["doc","docx","txt"].includes(ext);
-const resourceType = (isPdf || isDoc) ? "raw" : (item.resourceType || "image");
-    // ✅ Use full URL instead of /api/...
-   const res = await fetch(
-  `${API_BASE}/api/delete?publicId=${encodeURIComponent(item.publicId)}&resourceType=${resourceType}`,
-  { method: "DELETE" }
-);
-    if (!res.ok) throw new Error(`Server error: ${res.status}`);
+    const isPdf = ext === "pdf";
+    const isDoc = ["doc", "docx", "txt"].includes(ext);
+    const resourceType = (isPdf || isDoc) ? "raw" : (item.resourceType || "image");
+
+    console.log(`🗑️ Single delete: publicId="${item.publicId}" resourceType="${resourceType}"`);
+
+    const res = await fetch(
+      `${API_BASE}/api/delete?publicId=${encodeURIComponent(item.publicId)}&resourceType=${resourceType}`,
+      { method: "DELETE" }
+    );
+
     const data = await res.json();
-    if (!data.success) throw new Error(data.error || "Delete failed");
+    console.log("✅ Delete response:", data);
+
+    if (!res.ok || !data.success) throw new Error(data.error || "Delete failed");
+
   } else {
+    // Group by resource type
     const byType = {};
     items.forEach(item => {
-  const ext = (item.originalName || "").split(".").pop().toLowerCase();
-  const isPdf = ext === "pdf";
-  const isDoc = ["doc","docx","txt"].includes(ext);
-  const rt = (isPdf || isDoc) ? "raw" : (item.resourceType || "image");
-  if (!byType[rt]) byType[rt] = [];
-  byType[rt].push(item.publicId);
-});
+      const ext = (item.originalName || "").split(".").pop().toLowerCase();
+      const isPdf = ext === "pdf";
+      const isDoc = ["doc", "docx", "txt"].includes(ext);
+      const rt = (isPdf || isDoc) ? "raw" : (item.resourceType || "image");
+      if (!byType[rt]) byType[rt] = [];
+      byType[rt].push(item.publicId);
+    });
+
+    console.log("🗑️ Bulk delete by type:", byType);
+
     for (const [resourceType, publicIds] of Object.entries(byType)) {
-      // ✅ Use full URL instead of /api/...
-     const res = await fetch(`${API_BASE}/api/delete-many`, {
+      const res = await fetch(`${API_BASE}/api/delete-many`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ publicIds, resourceType }),
       });
-      if (!res.ok) throw new Error(`Server error: ${res.status}`);
+
       const data = await res.json();
-      if (!data.success) throw new Error(data.error || "Bulk delete failed");
+      console.log(`✅ Bulk delete response for "${resourceType}":`, data);
+
+      if (!res.ok || !data.success) throw new Error(data.error || "Bulk delete failed");
     }
   }
 };

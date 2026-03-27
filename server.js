@@ -91,17 +91,23 @@ app.get("/api/proxy-pdf", async (req, res) => {
   }
 });
 
+
 // ── Delete single file ──────────────────────────────────────
 app.delete("/api/delete", async (req, res) => {
   try {
     const { publicId, resourceType = "image" } = req.query;
     if (!publicId) return res.status(400).json({ success: false, error: "publicId is required" });
 
+    console.log(`🗑️ Deleting: "${publicId}" as resourceType: "${resourceType}"`);
+
     const result = await cloudinary.uploader.destroy(publicId, {
       resource_type: resourceType,
       invalidate: true,
     });
 
+    console.log(`✅ Cloudinary delete result:`, result);
+
+    // "not found" bhi success maano — already deleted
     if (result.result === "ok" || result.result === "not found") {
       res.json({ success: true, result });
     } else {
@@ -120,11 +126,17 @@ app.post("/api/delete-many", async (req, res) => {
     if (!publicIds || publicIds.length === 0) {
       return res.status(400).json({ success: false, error: "No publicIds provided" });
     }
+
+    console.log(`🗑️ Bulk deleting ${publicIds.length} files as "${resourceType}"`);
+
     const results = await Promise.allSettled(
       publicIds.map(id =>
         cloudinary.uploader.destroy(id, { resource_type: resourceType, invalidate: true })
       )
     );
+
+    console.log(`✅ Bulk delete results:`, results.map(r => r.value || r.reason?.message));
+
     res.json({
       success: true,
       results: results.map((r, i) => ({
@@ -138,7 +150,6 @@ app.post("/api/delete-many", async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
-
 // ── Health check ────────────────────────────────────────────
 app.get("/api/health", (_, res) => res.json({ status: "ok" }));
 
